@@ -140,7 +140,8 @@ Tools/MakeIcon/main.swift          图标绘制程序（CoreGraphics，改配色
 Tests/EngineSmoke/main.swift       引擎端到端冒烟测试（10 场景 18 断言）
 build.sh                           一键构建
 Info.plist                         Bundle 配置（含 .rar 文档类型与 UTI 声明）
-LICENSE                            MIT 许可 + 第三方组件声明
+LICENSE                            MIT 许可
+THIRD_PARTY_NOTICES.md             第三方组件（rars / unrar / rar）许可与来源声明
 ```
 
 图标是代码画的（不是图片素材）：橙色渐变圆角底 + 白色拉链 + 白色粗体 `RAR`：
