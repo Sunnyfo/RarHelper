@@ -52,8 +52,17 @@ fi
 
 echo "==> 拷贝资源与 Info.plist"
 cp Info.plist "$APP_PATH/Contents/Info.plist"
-cp Resources/rar Resources/unrar "$APP_PATH/Contents/Resources/"
+cp Resources/rars Resources/unrar "$APP_PATH/Contents/Resources/"
+if [[ -f Resources/rars-COPYING.txt ]]; then
+    cp Resources/rars-COPYING.txt "$APP_PATH/Contents/Resources/"
+fi
 cp Resources/AppIcon.icns "$APP_PATH/Contents/Resources/"
+# rar（RARLAB 试用版）不随仓库分发；若使用者自行放了进来则一并打包
+if [[ -f Resources/rar ]]; then
+    cp Resources/rar "$APP_PATH/Contents/Resources/"
+else
+    echo "    （未找到 Resources/rar，将只使用开源引擎 rars 压缩）"
+fi
 if [[ -f Resources/RARLAB-LICENSE.txt ]]; then
     cp Resources/RARLAB-LICENSE.txt "$APP_PATH/Contents/Resources/"
 fi

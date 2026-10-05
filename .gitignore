@@ -37,3 +37,7 @@ Resources/AppIcon.iconset/
 # 系统与日志
 .DS_Store
 *.log
+
+# RARLAB 官方 rar 试用版：按其 EULA 第 3b 条不随仓库分发
+# 如需官方引擎请自行下载（见 README「可选：安装官方 rar」）
+Resources/rar

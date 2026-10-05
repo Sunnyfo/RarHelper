@@ -82,6 +82,8 @@ final class MainWindowController: NSWindowController {
     private let encryptNamesCheck = NSButton(checkboxWithTitle: "同时加密文件名（更安全，但忘记密码将无法恢复）",
                                              target: nil, action: nil)
     private let compressButton = NSButton(title: "开始压缩", target: nil, action: nil)
+    private let engineStatusLabel = NSTextField(labelWithString: "")
+    private let installRarButton = NSButton(title: "安装 rar…", target: nil, action: nil)
 
     // MARK: 解压区
 
@@ -190,6 +192,67 @@ final class MainWindowController: NSWindowController {
         ])
 
         extractZone.isHidden = true
+        refreshCompressionEngineStatus()
+    }
+
+    /// 检查压缩引擎（rars / rar）是否就绪，并更新压缩页底部的状态提示。
+    private func refreshCompressionEngineStatus() {
+        if RarEngine.shared.isCompressionAvailable() {
+            engineStatusLabel.stringValue = "压缩引擎：\(RarEngine.shared.compressionEngineName)"
+                + "　解压引擎：\(RarEngine.shared.extractionEngineName)"
+            engineStatusLabel.textColor = .secondaryLabelColor
+            installRarButton.isHidden = true
+        } else {
+            engineStatusLabel.stringValue = "未找到可用的压缩引擎，压缩不可用（解压不受影响）"
+            engineStatusLabel.textColor = .systemOrange
+            installRarButton.isHidden = false
+        }
+    }
+
+    /// 引导用户自行下载安装 RARLAB 官方 rar。
+    ///
+    /// 本仓库不附带、也不代为分发该二进制——RARLAB EULA 第 3b 条禁止把未注册试用版
+    /// 打包进其它软件分发。解压用的 unrar 是 freeware，允许自由分发，故已在仓库内。
+    @objc private func showInstallRarGuide(_ sender: NSButton) {
+        #if arch(arm64)
+        let packageName = "rarmacos-arm-723.tar.gz"
+        let archName = "Apple Silicon"
+        #else
+        let packageName = "rarmacos-x64-723.tar.gz"
+        let archName = "Intel"
+        #endif
+        let resourcesPath = (Bundle.main.bundlePath as NSString)
+            .appendingPathComponent("Contents/Resources")
+        let command = """
+        cd "\(resourcesPath)"
+        curl -L -o rar.tar.gz https://www.rarlab.com/rar/\(packageName)
+        tar -xzf rar.tar.gz && mv rar/rar . && chmod +x rar && rm -rf rar rar.tar.gz
+        """
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = "安装 rar（\(archName)）"
+        alert.informativeText = """
+        rar 是 RARLAB 的试用版，按其许可不能随本应用一起分发，需要你自行下载一次。
+
+        在终端粘贴执行下面三行，执行完重新打开本应用即可压缩：
+        \(command)
+
+        商业用途请向 RARLAB 购买许可：https://www.rarlab.com
+        """
+        alert.addButton(withTitle: "复制命令")
+        alert.addButton(withTitle: "打开下载页")
+        alert.addButton(withTitle: "关闭")
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(command, forType: .string)
+        case .alertSecondButtonReturn:
+            if let url = URL(string: "https://www.rarlab.com/download.htm") {
+                NSWorkspace.shared.open(url)
+            }
+        default:
+            break
+        }
     }
 
     private func buildCompressZone() {
@@ -270,6 +333,18 @@ final class MainWindowController: NSWindowController {
         compressButton.font = NSFont.boldSystemFont(ofSize: 13)
         compressZone.addSubview(compressButton)
 
+        engineStatusLabel.translatesAutoresizingMaskIntoConstraints = false
+        engineStatusLabel.font = NSFont.systemFont(ofSize: 11)
+        engineStatusLabel.lineBreakMode = .byWordWrapping
+        compressZone.addSubview(engineStatusLabel)
+
+        installRarButton.translatesAutoresizingMaskIntoConstraints = false
+        installRarButton.bezelStyle = .rounded
+        installRarButton.font = NSFont.systemFont(ofSize: 11)
+        installRarButton.target = self
+        installRarButton.action = #selector(showInstallRarGuide(_:))
+        compressZone.addSubview(installRarButton)
+
         let passwordNote = NSTextField(labelWithString: "使用 RAR5 格式，加密强度 AES-256")
         passwordNote.translatesAutoresizingMaskIntoConstraints = false
         passwordNote.font = NSFont.systemFont(ofSize: 11)
@@ -329,7 +404,15 @@ final class MainWindowController: NSWindowController {
             compressButton.topAnchor.constraint(equalTo: passwordNote.bottomAnchor, constant: 14),
             compressButton.centerXAnchor.constraint(equalTo: compressZone.centerXAnchor),
             compressButton.widthAnchor.constraint(equalToConstant: 160),
-            compressButton.bottomAnchor.constraint(lessThanOrEqualTo: compressZone.bottomAnchor, constant: -22)
+
+            engineStatusLabel.topAnchor.constraint(equalTo: compressButton.bottomAnchor, constant: 14),
+            engineStatusLabel.leadingAnchor.constraint(equalTo: compressZone.leadingAnchor, constant: 2),
+            engineStatusLabel.trailingAnchor.constraint(equalTo: installRarButton.leadingAnchor, constant: -8),
+
+            installRarButton.centerYAnchor.constraint(equalTo: engineStatusLabel.centerYAnchor),
+            installRarButton.trailingAnchor.constraint(equalTo: compressZone.trailingAnchor),
+
+            engineStatusLabel.bottomAnchor.constraint(lessThanOrEqualTo: compressZone.bottomAnchor, constant: -20)
         ])
     }
 

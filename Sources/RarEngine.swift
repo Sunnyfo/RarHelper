@@ -197,8 +197,11 @@ final class RarEngine {
                   progress: ProgressHandler?,
                   log: LogHandler?,
                   completion: @escaping Completion) {
-        guard let rarPath = locate("rar") else {
-            completion(.failure(.binaryMissing(name: "rar")))
+        // 优先使用完全开源的 rars；没有时回退到 RARLAB 官方 rar
+        let rarsPath = locate("rars")
+        let rarPath = rarsPath == nil ? locate("rar") : nil
+        guard rarsPath != nil || rarPath != nil else {
+            completion(.failure(.binaryMissing(name: "rars")))
             return
         }
 
@@ -213,18 +216,41 @@ final class RarEngine {
                 return
             }
 
-            var arguments: [String] = ["a", "-y"]
-            if !password.isEmpty {
-                arguments.append(encryptNames ? "-hp" : "-p")
-            }
-            arguments += ["-ep1", "-ma5", output]
-            arguments += sources
-
-            let run = self.launch(executable: rarPath,
+            let run: (status: Int32, output: String)
+            if let rarsPath = rarsPath {
+                // rars 会按每个源自己的父目录剥离前缀，多源混合时会把子目录压平；
+                // 因此先切到所有源的公共父目录，再一律传相对路径，目录结构才不会丢。
+                let base = self.commonParentDirectory(of: sources)
+                let relatives = sources.map { self.relativePath(from: base, to: $0) }
+                var arguments = ["a", "--format", "rar50", "--progress", "always"]
+                if !password.isEmpty {
+                    arguments += ["--password-file", "-"]
+                    if encryptNames { arguments.append("--encrypt-headers") }
+                }
+                arguments += [output] + relatives
+                run = self.launch(executable: rarsPath,
                                   arguments: arguments,
                                   password: password.isEmpty ? nil : password,
+                                  currentDirectory: base,
                                   progress: progress,
                                   log: log)
+            } else if let rarPath = rarPath {
+                var arguments: [String] = ["a", "-y"]
+                if !password.isEmpty {
+                    arguments.append(encryptNames ? "-hp" : "-p")
+                }
+                arguments += ["-ep1", "-ma5", output] + sources
+                run = self.launch(executable: rarPath,
+                                  arguments: arguments,
+                                  password: password.isEmpty ? nil : password,
+                                  currentDirectory: nil,
+                                  progress: progress,
+                                  log: log)
+            } else {
+                self.fail(.binaryMissing(name: "rars"), completion: completion)
+                return
+            }
+
             let result = self.evaluate(status: run.status, output: run.output)
             DispatchQueue.main.async { completion(result) }
         }
@@ -247,8 +273,11 @@ final class RarEngine {
                  progress: ProgressHandler?,
                  log: LogHandler?,
                  completion: @escaping Completion) {
-        guard let unrarPath = locate("unrar") else {
-            completion(.failure(.binaryMissing(name: "unrar")))
+        // 优先使用完全开源的 rars；没有时回退到 freeware 的 unrar
+        let rarsPath = locate("rars")
+        let unrarPath = rarsPath == nil ? locate("unrar") : nil
+        guard rarsPath != nil || unrarPath != nil else {
+            completion(.failure(.binaryMissing(name: "rars")))
             return
         }
 
@@ -257,15 +286,74 @@ final class RarEngine {
                 self.fail(.archiveMissing(path: archive), completion: completion)
                 return
             }
-            let run = self.launch(executable: unrarPath,
-                                  arguments: ["x", password.isEmpty ? "-p-" : "-p", "-y", "-o+", archive,
-                                              destination.hasSuffix("/") ? destination : destination + "/"],
+            let target = destination.hasSuffix("/") ? destination : destination + "/"
+            let run: (status: Int32, output: String)
+            if let rarsPath = rarsPath {
+                var arguments = ["x", "--progress", "always"]
+                if !password.isEmpty { arguments += ["--password-file", "-"] }
+                arguments += [archive, target]
+                run = self.launch(executable: rarsPath,
+                                  arguments: arguments,
                                   password: password.isEmpty ? nil : password,
+                                  currentDirectory: nil,
                                   progress: progress,
                                   log: log)
+            } else if let unrarPath = unrarPath {
+                run = self.launch(executable: unrarPath,
+                                  arguments: ["x", password.isEmpty ? "-p-" : "-p", "-y", "-o+", archive, target],
+                                  password: password.isEmpty ? nil : password,
+                                  currentDirectory: nil,
+                                  progress: progress,
+                                  log: log)
+            } else {
+                self.fail(.binaryMissing(name: "rars"), completion: completion)
+                return
+            }
             let result = self.evaluate(status: run.status, output: run.output)
             DispatchQueue.main.async { completion(result) }
         }
+    }
+
+    // MARK: 路径工具
+
+    /// 求一组路径的公共父目录。
+    ///
+    /// rars 在多源混合时会按每个源各自剥离路径前缀，导致子目录结构丢失；
+    /// 统一改用「公共父目录 + 相对路径」即可还原真实结构。
+    private func commonParentDirectory(of paths: [String]) -> String {
+        let parents = paths.map { ($0 as NSString).deletingLastPathComponent }
+        guard let first = parents.first else { return NSTemporaryDirectory() }
+        var common = (first as NSString).standardizingPath
+        for parent in parents.dropFirst() {
+            common = commonPrefix(of: common, and: (parent as NSString).standardizingPath)
+        }
+        return common.isEmpty ? "/" : common
+    }
+
+    /// 两个路径的最长公共前缀目录。
+    private func commonPrefix(of lhs: String, and rhs: String) -> String {
+        let left = lhs.components(separatedBy: "/")
+        let right = rhs.components(separatedBy: "/")
+        var shared: [String] = []
+        var index = 0
+        while index < left.count && index < right.count && left[index] == right[index] {
+            shared.append(left[index])
+            index += 1
+        }
+        return shared.joined(separator: "/")
+    }
+
+    /// 把目标路径转换为相对 base 的相对路径。
+    private func relativePath(from base: String, to target: String) -> String {
+        let baseComponents = (base as NSString).standardizingPath.components(separatedBy: "/")
+        let targetComponents = (target as NSString).standardizingPath.components(separatedBy: "/")
+        var index = 0
+        while index < baseComponents.count && index < targetComponents.count
+            && baseComponents[index] == targetComponents[index] {
+            index += 1
+        }
+        let rest = targetComponents[index...]
+        return rest.isEmpty ? (targetComponents.last ?? target) : rest.joined(separator: "/")
     }
 
     // MARK: 公开接口 —— 加密检测
@@ -297,6 +385,30 @@ final class RarEngine {
             return true
         }
         return false
+    }
+
+    /// 压缩功能是否可用。
+    ///
+    /// 优先使用完全开源的 `rars`（Apache-2.0）；若用户自行安装了 RARLAB 官方
+    /// `rar` 试用版也可作为回退。解压侧的 `unrar` 是 freeware，允许自由分发。
+    ///
+    /// - Returns: 至少有一个压缩引擎可用时为 true。
+    func isCompressionAvailable() -> Bool {
+        return locate("rars") != nil || locate("rar") != nil
+    }
+
+    /// 当前实际使用的压缩引擎名称（用于界面展示）。
+    var compressionEngineName: String {
+        if locate("rars") != nil { return "rars 0.10（开源 · Apache-2.0）" }
+        if locate("rar") != nil { return "RARLAB rar 试用版" }
+        return "不可用"
+    }
+
+    /// 当前实际使用的解压引擎名称（用于界面展示）。
+    var extractionEngineName: String {
+        if locate("rars") != nil { return "rars 0.10（开源 · Apache-2.0）" }
+        if locate("unrar") != nil { return "unrar（freeware）" }
+        return "不可用"
     }
 
     // MARK: 二进制定位
@@ -348,11 +460,15 @@ final class RarEngine {
     private func launch(executable: String,
                         arguments: [String],
                         password: String?,
+                        currentDirectory: String? = nil,
                         progress: ProgressHandler?,
                         log: LogHandler?) -> (status: Int32, output: String) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = arguments
+        if let currentDirectory = currentDirectory {
+            process.currentDirectoryURL = URL(fileURLWithPath: currentDirectory)
+        }
 
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
@@ -374,9 +490,14 @@ final class RarEngine {
         }
 
         let stderrSink = OutputSink()
-        stderrSink.parsesProgress = false
+        // rars 的进度百分比输出在 stderr（形如 "progress: 20% Compressing archive: xxx"），
+        // 因此这里同样需要解析百分比，否则开源引擎下进度条会一直空着。
+        stderrSink.parsesProgress = true
         stderrSink.onLine = { line in
             DispatchQueue.main.async { log?(line) }
+            if let percent = self.lastPercent(in: line), let progress = progress {
+                DispatchQueue.main.async { progress(percent) }
+            }
         }
 
         stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
@@ -435,7 +556,10 @@ final class RarEngine {
     private func evaluate(status: Int32, output: String) -> Result<String, RarError> {
         let lowercased = output.lowercased()
 
-        if lowercased.contains("incorrect password") || lowercased.contains("wrong password") {
+        if lowercased.contains("incorrect password")
+            || lowercased.contains("wrong password")
+            || lowercased.contains("a password is required")
+            || lowercased.contains("password is incorrect") {
             return .failure(.wrongPassword)
         }
         if lowercased.contains("no files to extract") || lowercased.contains("no files to add") {
@@ -447,6 +571,11 @@ final class RarEngine {
         }
         if lowercased.contains("access denied") || lowercased.contains("permission denied") {
             return .failure(.unknown(detail: "没有访问权限，请换一个可写入的目标位置。\n\n原始输出尾部：\n"
+                + outputTail(output)))
+        }
+        if lowercased.contains("error:") {
+            // rars 把失败原因写在 stderr 的 "error: ..." 行里
+            return .failure(.unknown(detail: "压缩/解压引擎报错。\n\n原始输出尾部：\n"
                 + outputTail(output)))
         }
         if status == 0 {

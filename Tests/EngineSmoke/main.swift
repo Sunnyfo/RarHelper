@@ -170,6 +170,34 @@ engine.extract(archive: base + "/不存在的包.rar", to: base + "/x", password
                })
 waitDone()
 
+// ---------- 场景 10：多源混合（跨目录）结构不能丢 ----------
+print("场景 10：多源混合压缩")
+let extraDir = base + "/extra"
+try? fm.createDirectory(atPath: extraDir, withIntermediateDirectories: true)
+try? "另一个目录里的文件\n".write(toFile: extraDir + "/单文件.txt", atomically: true, encoding: .utf8)
+let multiRar = base + "/多源包.rar"
+let multiOut = base + "/多源解压"
+try? fm.removeItem(atPath: multiRar)
+try? fm.removeItem(atPath: multiOut)
+engine.compress(sources: [src, extraDir + "/单文件.txt"], output: multiRar, password: "",
+                encryptNames: false,
+                progress: { _ in }, log: { _ in },
+                completion: { result in
+                    if case .failure(let e) = result { print("     错误：\(e.title)") }
+                    done = true
+                })
+waitDone()
+engine.extract(archive: multiRar, to: multiOut, password: "",
+               progress: { _ in }, log: { _ in },
+               completion: { _ in done = true })
+waitDone()
+check(fm.fileExists(atPath: multiOut + "/src/子目录/深层目录/深层.txt"),
+      "多源：第一个目录的三层子目录结构保留")
+check(fm.fileExists(atPath: multiOut + "/extra/单文件.txt"),
+      "多源：第二个目录的路径结构保留")
+check(contents(multiOut + "/extra/单文件.txt") == "另一个目录里的文件\n",
+      "多源：第二个文件内容一致")
+
 print()
 if failures.isEmpty {
     print("=== 全部通过 ===")
