@@ -1,0 +1,2 @@
+# 冒烟测试里写死的是测试用假密码（"密码-中文123" 之类），不是真实凭证
+Tests/EngineSmoke/main.swift

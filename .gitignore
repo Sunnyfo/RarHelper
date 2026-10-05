@@ -1,0 +1,39 @@
+# ---- secrets & local config (never commit) ----
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+secrets.yml
+secrets.yaml
+credentials.json
+service-account*.json
+.netrc
+.npmrc
+.pypirc
+.htpasswd
+
+# ---- editors & OS ----
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+*.swp
+*~
+
+# ---- project specific (.gauignore) ----
+# 构建产物（build.sh 可随时重新生成，不进仓库）
+build/
+*.zip
+# 图标中间产物
+Resources/AppIcon.iconset/
+# 系统与日志
+.DS_Store
+*.log
